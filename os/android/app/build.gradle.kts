@@ -28,8 +28,8 @@ android {
         // 28: ASharedMemory (26) for guest memory and AAudio (27) for audio.
         minSdk        = 29
         targetSdk     = 35
-        versionCode   = if (eflcStartTest) 20003 else 10001
-        versionName   = if (eflcStartTest) "0.5.9-eflc-start-test.3" else "0.5.9-thor-test.1"
+        versionCode   = if (eflcStartTest) 20004 else 10001
+        versionName   = if (eflcStartTest) "0.5.9-eflc-start-test.4" else "0.5.9-thor-test.1"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

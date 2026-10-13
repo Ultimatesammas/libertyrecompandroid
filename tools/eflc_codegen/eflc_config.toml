@@ -22,6 +22,9 @@
 "0x82A698B8" = { size = 0x20 }
 "0x82A698D8" = { size = 0x1C }
 "0x82A6BE28" = { size = 0x1C }
+# Allocator release callback installed with lis/addi, then called indirectly.
+# Exact two-instruction body verified: move argument, tail-call existing free.
+"0x82875EB0" = { size = 8 }
 
 [[switch_tables]]
 address = 0x82731EA8

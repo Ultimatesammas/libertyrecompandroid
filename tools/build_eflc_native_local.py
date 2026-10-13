@@ -44,6 +44,29 @@ def split_registration(source, batch_size=256):
     return result
 
 
+def recompiled_functions(sources):
+    result = {}
+    for source in sources:
+        text = source.read_text()
+        starts = list(re.finditer(r"^DEFINE_REX_FUNC\(([A-Za-z_][A-Za-z_0-9]*)\) \{", text, re.M))
+        if not starts or text[:starts[0].start()].strip() != '#include "eflc_init.h"':
+            raise ValueError("Unexpected generated translation-unit preamble")
+        for index, start in enumerate(starts):
+            end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+            name, body = start[1], text[start.start():end].strip()
+            if name in result or not body.endswith("}"):
+                raise ValueError("Duplicate or malformed generated function")
+            result[name] = body
+    return result
+
+
+def added_functions(previous, current):
+    changed = [name for name, body in previous.items() if current.get(name) != body]
+    if changed:
+        raise ValueError("Previous function bodies changed; cannot reuse whole objects: " + ", ".join(changed[:8]))
+    return [current[name] for name in sorted(current.keys() - previous.keys())]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ndk", type=pathlib.Path, required=True)
@@ -53,6 +76,8 @@ def main():
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--previous-generated", type=pathlib.Path)
     p.add_argument("--reuse-objects", type=pathlib.Path)
+    p.add_argument("--reuse-functions", action="store_true",
+                   help="Reuse prior translation units only if every existing function body is identical")
     a = p.parse_args()
     sdk = ROOT / "glue/rexglue-sdk-main"
     toolchain = a.ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -77,6 +102,7 @@ def main():
         ROOT / "os/android/eflc-native/eflc_main.cpp",
         sdk / "src/ui/rex_app.cpp", sdk / "src/ui/windowed_app_main_sdl.cpp"]
     reusable = {}
+    objects = []
     if bool(a.previous_generated) != bool(a.reuse_objects):
         raise ValueError("Object reuse requires both previous-generated and reuse-objects")
     if a.previous_generated:
@@ -94,6 +120,23 @@ def main():
         for index, old_source in enumerate(old_sources):
             obj = a.reuse_objects / f"{index:03d}-{old_source.stem}.o"
             reusable[old_source.name] = (old_source, obj)
+        if a.reuse_functions:
+            prior_units = sorted(a.previous_generated.glob("eflc_recomp.*.cpp"))
+            new_units = sorted(generated.glob("eflc_recomp.*.cpp"))
+            extra = added_functions(recompiled_functions(prior_units), recompiled_functions(new_units))
+            for unit in prior_units:
+                obj = reusable[unit.name][1]
+                if not obj.is_file():
+                    raise ValueError("Prior compiled object missing: " + str(obj))
+                objects.append(obj)
+            sources = [source for source in sources if source not in new_units]
+            if extra:
+                delta = out / "eflc_added_functions.cpp"
+                delta.write_text('#include "eflc_init.h"\n\n' + "\n\n".join(extra) + "\n")
+                sources.append(delta)
+            print(f"Verified identical existing functions; reused {len(prior_units)} units and compiling {len(extra)} added functions", flush=True)
+    elif a.reuse_functions:
+        raise ValueError("Function reuse requires previous generated sources and objects")
     def compile_source(item):
         index, source = item
         obj = out / f"{index:03d}-{source.stem}.o"
@@ -119,12 +162,12 @@ def main():
         if result.returncode:
             raise RuntimeError(f"Compilation failed: {source.name}\n{log.read_text()[-12000:]}")
         return obj
-    objects = []
+    reused_count = len(objects)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
         futures = {pool.submit(compile_source, item):item[1] for item in enumerate(sources)}
         for future in concurrent.futures.as_completed(futures):
             objects.append(future.result())
-            print(f"Compiled {len(objects)}/{len(sources)}: {futures[future].name}", flush=True)
+            print(f"Prepared {len(objects)}/{len(sources) + reused_count}: {futures[future].name}", flush=True)
     target = out / "libmain.so"
     command = [str(compiler), "-shared", "-o", str(target), *map(str, objects),
                "-L", str(libraries), "-lrexruntime", "-lSDL3", "-landroid", "-llog", "-ldl",
@@ -134,7 +177,8 @@ def main():
     subprocess.run([str(toolchain / "llvm-strip"), "--strip-unneeded", str(target)], check=True)
     (out / "native-build.json").write_text(json.dumps({
         "kind":"EFLC start test", "compiler":subprocess.check_output([str(compiler),"--version"],text=True),
-        "sources":len(sources), "sha256":hashlib.sha256(target.read_bytes()).hexdigest(),
+        "sources":len(sources) + reused_count, "sha256":hashlib.sha256(target.read_bytes()).hexdigest(),
+        "reused_recomp_units_with_identical_function_bodies":reused_count,
         "gpu":"xenos", "device_acceptance":False,
         "note":"No claim of working gameplay, save/load or 60 FPS until tested on Thor."
     },indent=2))

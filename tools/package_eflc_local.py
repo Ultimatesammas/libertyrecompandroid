@@ -48,7 +48,7 @@ def main():
          "--java", rjava, "--custom-package", "com.libertyrecomp",
          "--rename-manifest-package", "com.libertyrecomp.eflctest",
          "--min-sdk-version", "29", "--target-sdk-version", "35",
-         "--version-code", "20003", "--version-name", "0.5.9-eflc-start-test.3",
+         "--version-code", "20004", "--version-name", "0.5.9-eflc-start-test.4",
          "-o", out / "resource-apk.apk", resources])
     classes = out / "classes"
     classes.mkdir(exist_ok=True)
@@ -92,7 +92,7 @@ def main():
         run([a.jdk / "bin/keytool", "-genkeypair", "-keystore", key, "-storepass", "android",
              "-keypass", "android", "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048",
              "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"])
-    target = out / "LibertyRecomp-EFLC-startup-fix.apk"
+    target = out / "LibertyRecomp-EFLC-test4.apk"
     run([tools / "apksigner", "sign", "--ks", key, "--ks-key-alias", "androiddebugkey",
          "--ks-pass", "pass:android", "--key-pass", "pass:android", "--out", target, aligned])
     with (out / "signing-validation.txt").open("w") as log:

@@ -1,6 +1,6 @@
 # Episodes from Liberty City: compatibility investigation
 
-Status: **test.2 installed on Thor and initialized the runtime; startup then aborted on an unregistered CRT initializer. Test.3 translates and registers all observed initializer-table targets; gameplay/save/FPS acceptance remains pending**.
+Status: **test.3 passed CRT initialization on Thor, then aborted on an allocator callback. Test.4 includes that callback and mounts the on-disc update directory; device acceptance remains pending**.
 Reviewed against Android v0.5.9 and Thor source commit 79a10df3083264cf6d9ee2bf8cf6a51f034149bc on 2026-10-13.
 
 ## Confirmed source constraints
@@ -107,11 +107,11 @@ The decoder tests cover continuous AES chaining across blocks, bounds checks and
 
 `tools/build_eflc_native_local.py` compiles generated code stored outside the repository with NDK r29, retaining the pinned original runtime libraries. `tools/package_eflc_local.py` packages Java/SDL code with Android build-tools 35.0.0, JDK 17 and the checksum-verified v0.5.9 APK resources/libraries. The generated game source, executable, game assets, APK and signing key are not published to GitHub.
 
-The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.3`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
+The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.4`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
 
 Verified: 14 synthetic installer checks, all Java compilation, native linking, APK ZIP CRCs, matching staged libmain checksum, ARM64/launcher metadata and apksigner signature verification. No disc executable/RPF/IMG/SCO assets are bundled.
 
-APK SHA-256: `191f988bfd90b7bdf79d9d67948783ac57e46459fb23d7e29873cdc311089669` (44,272,420 bytes).
+APK SHA-256: `9b12726c0d8bc704cac80cfe221d514fa6792508c238653d62b9d881797dcaaf` (44,256,036 bytes).
 
 Thor acceptance is still required: launch both episodes, verify picture/audio/controller behavior, save normally, fully close/reopen the app and load the save. On failure, use **Exporteer debuglog**. Stable 60 FPS and sharp rendering remain unestablished.
 
@@ -130,3 +130,15 @@ Strict codegen succeeds with these boundaries. `check_eflc_startup.py` checks ev
 The same-checkout incremental native build reuses byte-identical generated units only after checking compiler equality and that header changes consist solely of function declarations. Changed units and app host code are compiled again. The large module registration function is split into batches of 256 calls without changing the exact call sequence, and uses O0 because registration runs only at load; gameplay functions retain O2. Reuse requires the exact previous generated inputs and successful object directory; it must not be used across SDK/header/toolchain changes.
 
 Test.3 APK passes signature/resource-table alignment/ZIP CRC checks and contains the rebuilt native library. Its native exports include all nine previously missing initializer targets. It keeps the same package/signing key with versionCode 20003, so updating preserves the existing installed disc and separate save directory. Device launch after this fix, gameplay, save/load and FPS are not yet verified.
+
+### Allocator callback and update device correction (test.4)
+
+The second supplied Thor log no longer reports the CRT initializer failure. It reaches game initialization, fails to resolve update:\\data\\effects\\entityFx.dat because the update device was never mounted, and then aborts on unregistered target 82875EB0. The backtrace identifies sub_82870228 invoking a callback stored at offset 36 of its object. In the exact executable, the callback is installed through lis/addi/stw sequences at 82862628 and 8286E84C. Its independent two-instruction body forwards the second argument to the existing release function at 82846EB8. This function is now generated and registered; its original behavior is retained.
+
+The disc inventory confirms update/data/effects/entityFx.dat (15,650 bytes) and the remaining update files are already in the user's ISO. The installer copied them. The title host now supplies game/update as update_data_root when that directory exists, using the runtime's existing update-device mounting mechanism. This does not require GTA IV Title Update 8.
+
+The mapping checker now requires the verified runtime-constructed allocator callback in addition to all 1,449 CRT initializer targets. Four startup-check tests pass. A conservative scan of adjacent lis/addi address constructions with independently bounded mr/li-plus-tail-call bodies found no additional target of that specific shape beyond this callback. Other 1,203 address candidates remain unvalidated; they are not blindly registered, and this is not proof of full indirect-call coverage.
+
+Strict codegen passed. The native rebuild compared every existing generated function against the prior compiled inputs, requiring exactly identical bodies and unchanged header semantics before reusing the old translation units. Only the ten added functions (nine CRT plus one callback), current mappings/registrar and host code were compiled anew. Four build-helper tests cover batching and rejection of changed/removed bodies. No original function is suppressed or replaced with a no-op.
+
+Test.4 uses package com.libertyrecomp.eflctest with versionCode 20004 and the same signing key. Updating preserves the installed disc and save directories. Boot after these fixes, gameplay, save/load and stable frame times still require device testing.

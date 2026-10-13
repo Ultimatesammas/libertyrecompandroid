@@ -19,6 +19,13 @@ class EflcStartTest final : public rex::ReXApp {
     const auto root = rex::filesystem::GetUserFolder() / "EFLC";
     if (paths.game_data_root.empty()) paths.game_data_root = root / "game";
     if (paths.saved_game_root.empty()) paths.saved_game_root = root / "saves";
+    // Standalone EFLC includes update files on its own disc. Runtime only
+    // creates the update: device when this path is explicitly supplied.
+    if (paths.update_data_root.empty()) {
+      const auto update = paths.game_data_root / "update";
+      std::error_code error;
+      if (std::filesystem::is_directory(update, error)) paths.update_data_root = update;
+    }
     // Android passes explicit user/cache/metadata paths in EflcGameActivity.
   }
 };

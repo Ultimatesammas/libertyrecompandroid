@@ -1,6 +1,6 @@
 import re
 import unittest
-from build_eflc_native_local import split_registration
+from build_eflc_native_local import split_registration, added_functions
 
 
 class RegistrationBuildChecks(unittest.TestCase):
@@ -19,6 +19,13 @@ class RegistrationBuildChecks(unittest.TestCase):
     def test_invalid_batch_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "batch size"):
             split_registration("", 0)
+
+    def test_added_function_reuse_rejects_changed_or_removed_bodies(self):
+        original = {"first": "body-one", "second": "body-two"}
+        self.assertEqual(added_functions(original, dict(original, third="body-three")), ["body-three"])
+        for altered in [{"first": "body-one"}, dict(original, second="changed")]:
+            with self.assertRaisesRegex(ValueError, "function bodies changed"):
+                added_functions(original, altered)
 
 
 if __name__ == "__main__":

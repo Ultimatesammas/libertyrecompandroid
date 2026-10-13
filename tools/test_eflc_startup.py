@@ -22,6 +22,13 @@ class StartupChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside decoded image"):
             check(b"", set(), base=0, ranges=((0, 4),))
 
+    def test_runtime_constructed_callback_is_required(self):
+        image = struct.pack(">I", 0x100)
+        options = dict(base=0, ranges=((0, 4),), code_begin=0x100, code_end=0x200, required_callbacks=(0x104,))
+        with self.assertRaisesRegex(ValueError, "00000104"):
+            check(image, {0x100}, **options)
+        self.assertEqual(check(image, {0x100, 0x104}, **options), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
