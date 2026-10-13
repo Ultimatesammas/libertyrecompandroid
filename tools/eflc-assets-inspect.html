@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="nl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<title>EFLC ISO onderzoeken</title>
+<style>
+body{font:17px system-ui;background:#111827;color:#eef2ff;margin:0;padding:24px;max-width:650px;margin:auto;line-height:1.5}h1{font-size:26px}button,input{font:inherit;max-width:100%}button{padding:14px;background:#a5b4fc;color:#111827;border:0;border-radius:8px;margin:16px 0}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1f2937;padding:16px;border-radius:8px}small{display:block;color:#cbd5e1}
+</style>
+<h1>EFLC ISO onderzoeken</h1>
+<p>Selecteer je eigen Xbox 360-ISO. Dit hulpmiddel leest de bestandslijst en haalt de executables eruit voor compatibiliteitsonderzoek.</p>
+<p>Alles gebeurt op dit apparaat. Er wordt niets verstuurd, geïnstalleerd of aan je ISO veranderd. Dit maakt de APK nog niet geschikt voor deze editie.</p>
+<input id="source" type="file" accept=".iso">
+<p><label><input id="assets" type="checkbox" checked> Ook episode-, script- en shaderbestanden meenemen (ongeveer 125 MB).</label></p>
+<br><button id="inspect">Maak onderzoeksbestand</button>
+<pre id="status" aria-live="polite">Open dit bestand in een browser op je Thor en kies de ISO.</pre>
+<div id="download"></div>
+<small>Het resultaat is een ZIP met de gevonden .xex/.xexp-bestanden, enkele installatiebestanden en een JSON-bestandslijst. De volledige ISO wordt niet in het geheugen geladen. Maximaal 128 MiB aan onderzoeksbestanden wordt opgenomen.</small>
+<script>
+'use strict';
+const MiB = 1024 * 1024;
+const OFFSETS = [0, 0xFB20, 0x20600, 0x2080000, 0xFD90000];
+const decoder = new TextDecoder('windows-1252');
+const encoder = new TextEncoder();
+function inRange(offset, size, total) {
+  return Number.isSafeInteger(offset) && Number.isSafeInteger(size) && offset >= 0 && size >= 0 && offset <= total && size <= total - offset;
+}
+async function readPart(file, offset, size) {
+  if (!inRange(offset, size, file.size)) throw Error('Een bestand of map valt buiten de ISO.');
+  const buffer = await file.slice(offset, offset + size).arrayBuffer();
+  if (buffer.byteLength !== size) throw Error('De ISO kon niet volledig worden gelezen.');
+  return new Uint8Array(buffer);
+}
+function text(bytes) { return decoder.decode(bytes); }
+function safeName(name) {
+  if (!name || name === '.' || name === '..' || /[\\/\x00-\x1f:]/.test(name)) throw Error('Ongeldige bestandsnaam in de ISO.');
+  return name;
+}
+async function listIso(file) {
+  let base = null, descriptor;
+  for (const candidate of OFFSETS) {
+    const at = candidate + 32 * 2048;
+    if (!inRange(at, 2048, file.size)) continue;
+    const bytes = await readPart(file, at, 2048);
+    if (text(bytes.subarray(0, 20)) === 'MICROSOFT*XBOX*MEDIA') { base = candidate; descriptor = new DataView(bytes.buffer); break; }
+  }
+  if (base === null) throw Error('Geen ondersteunde Xbox 360-discindeling gevonden.');
+  const rootSector = descriptor.getUint32(20, true), rootSize = descriptor.getUint32(24, true);
+  const directories = [{offset:base + rootSector * 2048, size:rootSize, path:'', depth:0}];
+  const seenDirectories = new Set(), entries = [];
+  let directoryBytes = 0, nodesRead = 0;
+  while (directories.length) {
+    const directory = directories.pop();
+    if (directory.depth > 256 || directory.size < 14 || directory.size > 16 * MiB) throw Error('Ongeldige of te grote mapstructuur.');
+    const key = directory.offset + ':' + directory.size;
+    if (seenDirectories.has(key)) throw Error('Herhaalde of cyclische mapstructuur.');
+    seenDirectories.add(key);
+    directoryBytes += directory.size;
+    if (directoryBytes > 64 * MiB) throw Error('De mapstructuur overschrijdt de onderzoeksgrens.');
+    const bytes = await readPart(file, directory.offset, directory.size), view = new DataView(bytes.buffer);
+    const pending = [0], visited = new Set(), names = new Set();
+    while (pending.length) {
+      const ordinal = pending.pop(), at = ordinal * 4;
+      if (visited.has(ordinal) || !inRange(at, 14, bytes.length) || ++nodesRead > 100000) throw Error('Ongeldige of cyclische bestandslijst.');
+      visited.add(ordinal);
+      const left = view.getUint16(at, true), right = view.getUint16(at + 2, true);
+      const sector = view.getUint32(at + 4, true), size = view.getUint32(at + 8, true);
+      const isDirectory = Boolean(bytes[at + 12] & 0x10), nameLength = bytes[at + 13];
+      if (!inRange(at + 14, nameLength, bytes.length)) throw Error('Afgebroken bestandsnaam.');
+      const name = safeName(text(bytes.subarray(at + 14, at + 14 + nameLength)));
+      if (names.has(name.toLowerCase())) throw Error('Dubbele bestandsnaam in een map.');
+      names.add(name.toLowerCase());
+      const path = directory.path ? directory.path + '/' + name : name, offset = base + sector * 2048;
+      if (!inRange(offset, size, file.size)) throw Error('Een bestand of map valt buiten de ISO.');
+      if (isDirectory && size) directories.push({offset, size, path, depth:directory.depth + 1});
+      entries.push({path, offset, size, directory:isDirectory});
+      if (left) pending.push(left);
+      if (right) pending.push(right);
+    }
+  }
+  return {partitionOffset:base, rootSector, rootSize, entries};
+}
+function hex(value) { return value.toString(16).toUpperCase().padStart(8, '0'); }
+function xexMetadata(bytes) {
+  if (bytes.length < 24 || text(bytes.subarray(0, 4)) !== 'XEX2') return {error:'Geen geldige XEX2-header'};
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerSize = view.getUint32(8), count = view.getUint32(20);
+  if (headerSize < 24 || headerSize > bytes.length || count > 4096 || 24 + count * 8 > headerSize) return {error:'Ongeldige XEX2-headertabel'};
+  const result = {moduleFlags:hex(view.getUint32(4)), headerSize};
+  let found = false;
+  for (let i = 0; i < count; i++) {
+    const at = 24 + i * 8;
+    if (view.getUint32(at) !== 0x00040006) continue;
+    if (found) return {error:'Dubbele execution-info'};
+    found = true;
+    const info = view.getUint32(at + 4);
+    if (info < 24 + count * 8 || !inRange(info, 24, headerSize)) return {error:'Ongeldige execution-info'};
+    Object.assign(result, {mediaId:hex(view.getUint32(info)), version:hex(view.getUint32(info + 4)), baseVersion:hex(view.getUint32(info + 8)), titleId:hex(view.getUint32(info + 12))});
+  }
+  if (!found) result.error = 'Geen execution-info';
+  return result;
+}
+const crcTable = new Uint32Array(256);
+for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcTable[n] = c >>> 0; }
+function crc32(bytes) { let c = 0xFFFFFFFF; for (const b of bytes) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStored(files) {
+  const chunks = [], central = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = encoder.encode(file.name), crc = crc32(file.bytes);
+    if (name.length > 65535) throw Error('Te lange padnaam.');
+    const header = new Uint8Array(30 + name.length), v = new DataView(header.buffer);
+    v.setUint32(0, 0x04034B50, true); v.setUint16(4, 20, true); v.setUint16(6, 0x800, true);
+    v.setUint16(12, 33, true); v.setUint32(14, crc, true); v.setUint32(18, file.bytes.length, true); v.setUint32(22, file.bytes.length, true); v.setUint16(26, name.length, true); header.set(name, 30);
+    const record = new Uint8Array(46 + name.length), r = new DataView(record.buffer);
+    r.setUint32(0, 0x02014B50, true); r.setUint16(4, 20, true); r.setUint16(6, 20, true); r.setUint16(8, 0x800, true); r.setUint16(14, 33, true);
+    r.setUint32(16, crc, true); r.setUint32(20, file.bytes.length, true); r.setUint32(24, file.bytes.length, true); r.setUint16(28, name.length, true); r.setUint32(42, offset, true); record.set(name, 46);
+    chunks.push(header, file.bytes); central.push(record); offset += header.length + file.bytes.length;
+  }
+  const centralSize = central.reduce((sum, bytes) => sum + bytes.length, 0), end = new Uint8Array(22), e = new DataView(end.buffer);
+  e.setUint32(0, 0x06054B50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, centralSize, true); e.setUint32(16, offset, true);
+  return new Blob([...chunks, ...central, end], {type:'application/zip'});
+}
+const RESEARCH_ARCHIVES = ['common.rpf', 'xbox360.rpf', 'dlc1/dlc.rpf', 'dlc2/dlc.rpf',
+  'dlc1/dlc/common/data/cdimages/script.img', 'dlc2/dlc/common/data/cdimages/script.img'];
+async function makeBundle(file, progress = () => {}, includeAssets = false) {
+  const disc = await listIso(file), files = [], executables = [];
+  if (includeAssets) {
+    const paths = new Set(disc.entries.filter(e => !e.directory).map(e => e.path.toLowerCase()));
+    const missing = RESEARCH_ARCHIVES.filter(path => !paths.has(path));
+    if (missing.length) throw Error('Voor uitgebreid EFLC-onderzoek ontbreken: ' + missing.join(', '));
+  }
+  let total = 0;
+  for (const entry of disc.entries) {
+    if (entry.directory) continue;
+    const name = entry.path.split('/').pop().toLowerCase();
+    const executable = /\.(xex|xexp)$/.test(name);
+    const marker = ['setup2.xml', 'content.dat', 'e1_audio.xml', 'e2_audio.xml'].includes(name);
+    const researchArchive = includeAssets && RESEARCH_ARCHIVES.includes(entry.path.toLowerCase());
+    const shader = includeAssets && entry.path.toLowerCase().startsWith('update/shaders/') && /\.(fxc|dcl)$/.test(name);
+    if (!executable && !marker && !researchArchive && !shader) continue;
+    if (entry.size > (executable || researchArchive ? 64 * MiB : MiB)) throw Error('Een onderzoeksbestand is onverwacht groot: ' + entry.path);
+    total += entry.size;
+    if (total > 128 * MiB || files.length >= 500) throw Error('Te veel onderzoeksbestanden.');
+    progress('Lezen: ' + entry.path);
+    const bytes = await readPart(file, entry.offset, entry.size);
+    files.push({name:'disc/' + entry.path, bytes});
+    if (executable) {
+      const metadata = xexMetadata(bytes);
+      let sha256 = null;
+      if (globalThis.crypto && crypto.subtle) sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+      executables.push({path:entry.path, size:entry.size, sha256, metadata});
+    }
+  }
+  if (!executables.length) throw Error('Geen .xex/.xexp gevonden. Er is nog geen onderzoeksbestand gemaakt.');
+  const report = {format:'liberty-eflc-inspection-2', compatibility:'unverified', includesResearchAssets:includeAssets, iso:{name:file.name, size:file.size}, ...disc, executables};
+  files.push({name:'eflc-report.json', bytes:encoder.encode(JSON.stringify(report, null, 2))});
+  return {zip:zipStored(files), report};
+}
+let downloadUrl = null;
+document.getElementById('inspect').addEventListener('click', async () => {
+  const button = document.getElementById('inspect'), status = document.getElementById('status'), output = document.getElementById('download');
+  output.replaceChildren();
+  if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
+  const file = document.getElementById('source').files[0];
+  if (!file) { status.textContent = 'Kies eerst je ISO.'; return; }
+  button.disabled = true; status.textContent = 'Bestandslijst lezen…';
+  try {
+    const includeAssets = document.getElementById('assets').checked;
+    const result = await makeBundle(file, message => { status.textContent = message; }, includeAssets);
+    downloadUrl = URL.createObjectURL(result.zip);
+    const link = document.createElement('a'); link.href = downloadUrl; link.download = includeAssets ? 'EFLC-assets-onderzoek.zip' : 'EFLC-onderzoek.zip'; link.textContent = 'Download ' + link.download; output.append(link);
+    status.textContent = result.report.executables.map(x => x.path + '\n' + JSON.stringify(x.metadata)).join('\n\n') + '\n\nDownload de ZIP en stuur die terug in de chat. Dit resultaat bevestigt nog geen spelcompatibiliteit.';
+  } catch (error) { status.textContent = 'Onderzoek gestopt: ' + error.message; }
+  finally { button.disabled = false; }
+});
+</script>
+</html>
