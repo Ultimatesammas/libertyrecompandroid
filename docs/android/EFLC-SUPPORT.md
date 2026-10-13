@@ -1,6 +1,6 @@
 # Episodes from Liberty City: compatibility investigation
 
-Status: **private ARM64 EFLC start-test APK built and signed; gameplay, saving, rendering and frame times remain unverified on Thor**.
+Status: **test.2 installed on Thor and initialized the runtime; startup then aborted on an unregistered CRT initializer. Test.3 translates and registers all observed initializer-table targets; gameplay/save/FPS acceptance remains pending**.
 Reviewed against Android v0.5.9 and Thor source commit 79a10df3083264cf6d9ee2bf8cf6a51f034149bc on 2026-10-13.
 
 ## Confirmed source constraints
@@ -107,14 +107,26 @@ The decoder tests cover continuous AES chaining across blocks, bounds checks and
 
 `tools/build_eflc_native_local.py` compiles generated code stored outside the repository with NDK r29, retaining the pinned original runtime libraries. `tools/package_eflc_local.py` packages Java/SDL code with Android build-tools 35.0.0, JDK 17 and the checksum-verified v0.5.9 APK resources/libraries. The generated game source, executable, game assets, APK and signing key are not published to GitHub.
 
-The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.2`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
+The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.3`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
 
 Verified: 14 synthetic installer checks, all Java compilation, native linking, APK ZIP CRCs, matching staged libmain checksum, ARM64/launcher metadata and apksigner signature verification. No disc executable/RPF/IMG/SCO assets are bundled.
 
-APK SHA-256: `29f69d8f4f152fc3b158a32530dc0501933afbd184e9a52ae44f88009b8a4435` (44,129,060 bytes).
+APK SHA-256: `191f988bfd90b7bdf79d9d67948783ac57e46459fb23d7e29873cdc311089669` (44,272,420 bytes).
 
 Thor acceptance is still required: launch both episodes, verify picture/audio/controller behavior, save normally, fully close/reopen the app and load the save. On failure, use **Exporteer debuglog**. Stable 60 FPS and sharp rendering remain unestablished.
 
 ### Installation packaging correction (test.2)
 
 The first manual package incorrectly compressed resources.arsc. Android 11+ rejects compressed or non-4-byte-aligned resource tables for target API 30+. Signature verification alone did not detect this. The corrected packager preserves aapt2 ZIP storage metadata, retains the signing key/package ID, increments versionCode to 20002, and checks final APK table compression, actual local-entry data offset, ZIP CRCs and zipalign. This is a packaging fix only; Thor gameplay acceptance is still pending.
+
+### CRT startup correction (test.3)
+
+The supplied Thor log shows successful driver initialization (Turnip Adreno 740), game mounting, XEX loading and GPU/audio/input system initialization. The game thread then aborts with `Call to invalid or unregistered function at guest address 0x82A68ED8`; the backtrace identifies `sub_82A185B0` calling the CRT initializer table. The Cocoon database log does not contain this game crash.
+
+The two pointer ranges actually traversed by that function are 82A916B4–82A916C0 and 82A90010–82A916B0 (exclusive ends). There are 1,449 unique non-null/non-sentinel targets. Nine were absent from the generated mapping: 82A68ED8, 82A68EF8, 82A68F18, 82A68F38, 82A69038, 82A69878, 82A698B8, 82A698D8 and 82A6BE28. Their short function boundaries and terminal instructions were checked in the exact supplied executable. Explicit codegen boundaries now retain the real functions; no missing call is ignored or replaced with a no-op.
+
+Strict codegen succeeds with these boundaries. `check_eflc_startup.py` checks every initializer-table target and is now required by the staging tool. It rejects the original translation with all nine missing addresses and accepts the new translation with all 1,449 targets mapped. Three synthetic tests cover missing mappings, duplicate/sentinel entries and invalid pointers/bounds. This checks only the identified startup tables; it is not a guarantee of coverage for every indirect call in the game.
+
+The same-checkout incremental native build reuses byte-identical generated units only after checking compiler equality and that header changes consist solely of function declarations. Changed units and app host code are compiled again. The large module registration function is split into batches of 256 calls without changing the exact call sequence, and uses O0 because registration runs only at load; gameplay functions retain O2. Reuse requires the exact previous generated inputs and successful object directory; it must not be used across SDK/header/toolchain changes.
+
+Test.3 APK passes signature/resource-table alignment/ZIP CRC checks and contains the rebuilt native library. Its native exports include all nine previously missing initializer targets. It keeps the same package/signing key with versionCode 20003, so updating preserves the existing installed disc and separate save directory. Device launch after this fix, gameplay, save/load and FPS are not yet verified.

@@ -10,6 +10,7 @@ import hashlib
 import pathlib
 import shutil
 import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXPECTED = "590accf1a74b70ff3b4181090367fe702aa6a7a12059a04414d55c8ca514a140"
@@ -57,6 +58,8 @@ includes = ["eflc_config.toml"]
                     "codegen", "eflc_manifest.toml"], cwd=out, check=True)
     if "[error]" in (out / "codegen.log").read_text():
         raise RuntimeError("Code generation reported errors")
+    subprocess.run([sys.executable, str(ROOT / "tools/check_eflc_startup.py"),
+                    str(args.xex.resolve()), str(out / "generated/default")], check=True)
     print("Strict EFLC code generation passed; hooks, assets and Android build remain unverified.")
 
 

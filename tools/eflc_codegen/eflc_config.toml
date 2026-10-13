@@ -10,6 +10,18 @@
 "0x82731E70" = { size = 0xA0 }
 "0x827323B8" = { size = 0x94 }
 "0x82A77A28" = { size = 8 }
+# CRT initializer table targets missed by automatic discovery. Verified against
+# the exact image and the two pointer ranges used by sub_82A185B0.
+# Every body ends in blr or an unconditional tail call; no call is suppressed.
+"0x82A68ED8" = { size = 0x20 }
+"0x82A68EF8" = { size = 0x20 }
+"0x82A68F18" = { size = 0x20 }
+"0x82A68F38" = { size = 0x1C }
+"0x82A69038" = { size = 0x1C }
+"0x82A69878" = { size = 0x1C }
+"0x82A698B8" = { size = 0x20 }
+"0x82A698D8" = { size = 0x1C }
+"0x82A6BE28" = { size = 0x1C }
 
 [[switch_tables]]
 address = 0x82731EA8
