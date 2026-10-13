@@ -2081,6 +2081,7 @@ class Gta4NativeGraphicsSystem final : public system::IGraphicsSystem {
   bool pipeline_stats_attempted_ = false;
   uint32_t pipeline_stats_reports_ = 0;
   bool gpu_counters_attempted_ = false;
+  uint32_t dynamic_draw_distance_target_fps_ = 0;
   double dynamic_draw_distance_factor_ = 1.0;
   double dynamic_draw_distance_published_ = 1.0;
   double dynamic_draw_distance_interval_ms_ = 33.3;
@@ -2090,7 +2091,7 @@ class Gta4NativeGraphicsSystem final : public system::IGraphicsSystem {
   double dynamic_draw_distance_window_ms_ = 0.0;
   std::array<double, 3> dynamic_draw_distance_window_fps_{30.0, 30.0, 30.0};
   uint32_t dynamic_draw_distance_windows_since_drop_ = 1000;
-  // B1 30 FPS guard: a ladder of content reductions above the draw distance.
+  // Frame-budget guard: reflection reductions above the draw distance.
   void UpdateFpsGuard(double interval_ms, uint64_t now, uint64_t frequency);
   void ApplyFpsGuardLevel(uint32_t level);
   uint32_t fps_guard_level_ = 0;

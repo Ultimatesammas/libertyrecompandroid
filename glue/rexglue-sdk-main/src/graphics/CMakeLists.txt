@@ -338,9 +338,10 @@ if(REXGLUE_USE_VULKAN)
     # ThinLTO inside the renderer plugin (recorder and render worker).
     if(ANDROID)
         option(LIBERTY_ANDROID_RENDERER_THINLTO "ThinLTO for the native renderer on Android" ON)
+        set(LIBERTY_ANDROID_RENDERER_THINLTO_JOBS 8 CACHE STRING "Renderer ThinLTO parallel jobs")
         if(LIBERTY_ANDROID_RENDERER_THINLTO)
             target_compile_options(rexgpu-gta4-native PRIVATE -flto=thin)
-            target_link_options(rexgpu-gta4-native PRIVATE -flto=thin "-Wl,--thinlto-jobs=8"
+            target_link_options(rexgpu-gta4-native PRIVATE -flto=thin "-Wl,--thinlto-jobs=${LIBERTY_ANDROID_RENDERER_THINLTO_JOBS}"
                 "-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/thinlto-cache-renderer")
         endif()
     endif()

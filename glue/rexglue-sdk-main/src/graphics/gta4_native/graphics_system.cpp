@@ -118,6 +118,7 @@
 #include "native_probe_region.h"
 #include "native_pipeline_policy.h"
 #include "native_pipeline_compiler.h"
+#include "adaptive_frame_budget.h"
 #include "native_pipeline_recipe.h"
 #include "native_spirv_reflection.h"
 #include "native_stencil_volume_policy.h"
@@ -7078,14 +7079,31 @@ void Gta4NativeGraphicsSystem::FinishPresent(NativeCommand& command,
 }
 
 void Gta4NativeGraphicsSystem::UpdateDynamicDrawDistance() {
-  // Steers gta4_draw_distance_dynamic_factor from the presented frame rate,
-  // measured over one-second windows. Short streaming hitches and single
-  // missed frames are not draw-distance load and used to swing the factor
-  // between 1.0 and the minimum every ~30 s: it now drops only while two
-  // windows in a row miss the 30 Hz target clearly, in small spaced steps,
-  // and climbs back once the last three seconds average near the target.
+  // Use the selected frame limit, preserving the existing 30 Hz ratios.
+  // This controller measures recorder publication, not SurfaceFlinger output.
+  const uint32_t target = adaptive_frame_budget::TargetFps(
+      rex::cvar::Query<uint32_t>("gta4_frame_limit"));
+  if (target != dynamic_draw_distance_target_fps_) {
+    dynamic_draw_distance_target_fps_ = target;
+    dynamic_draw_distance_last_tick_ = 0;
+    dynamic_draw_distance_window_frames_ = 0;
+    dynamic_draw_distance_window_ms_ = 0.0;
+    dynamic_draw_distance_window_fps_.fill(double(target));
+    dynamic_draw_distance_windows_since_drop_ = 1000;
+    dynamic_draw_distance_interval_ms_ = 1000.0 / double(target);
+    fps_guard_slow_since_tick_ = 0;
+    fps_guard_fast_since_tick_ = 0;
+  }
   if (rex::cvar::GetFlagByName("gta4_dynamic_draw_distance") != "true") {
     dynamic_draw_distance_factor_ = 1.0;
+    if (dynamic_draw_distance_published_ != 1.0) {
+      rex::cvar::SetFlagByName("gta4_draw_distance_dynamic_factor", "1.000");
+      dynamic_draw_distance_published_ = 1.0;
+    }
+    dynamic_draw_distance_last_tick_ = 0;
+    dynamic_draw_distance_window_frames_ = 0;
+    dynamic_draw_distance_window_ms_ = 0.0;
+    dynamic_draw_distance_window_fps_.fill(double(target));
     return;
   }
   const uint64_t now = rex::chrono::Clock::QueryHostTickCount();
@@ -7104,7 +7122,7 @@ void Gta4NativeGraphicsSystem::UpdateDynamicDrawDistance() {
   }
   double factor = dynamic_draw_distance_factor_;
   ++dynamic_draw_distance_window_frames_;
-  dynamic_draw_distance_window_ms_ += std::min(interval_ms, 100.0);
+  dynamic_draw_distance_window_ms_ += interval_ms;
   if (dynamic_draw_distance_window_ms_ >= 1000.0) {
     auto& fps = dynamic_draw_distance_window_fps_;
     fps[2] = fps[1];
@@ -7113,13 +7131,15 @@ void Gta4NativeGraphicsSystem::UpdateDynamicDrawDistance() {
     dynamic_draw_distance_window_frames_ = 0;
     dynamic_draw_distance_window_ms_ = 0.0;
     ++dynamic_draw_distance_windows_since_drop_;
-    if (fps[0] < 27.0 && fps[1] < 27.0) {
+    if (fps[0] < adaptive_frame_budget::DropBelowFps(target) &&
+        fps[1] < adaptive_frame_budget::DropBelowFps(target)) {
       if (dynamic_draw_distance_windows_since_drop_ >= 2) {
         factor -= 0.05;
         dynamic_draw_distance_windows_since_drop_ = 0;
       }
     } else if (dynamic_draw_distance_windows_since_drop_ >= 10 &&
-               (fps[0] + fps[1] + fps[2]) / 3.0 >= 28.5) {
+               (fps[0] + fps[1] + fps[2]) / 3.0 >=
+                   adaptive_frame_budget::RecoverAtFps(target)) {
       factor += 0.02;
     }
   }
@@ -7165,13 +7185,12 @@ void Gta4NativeGraphicsSystem::UpdateFpsGuard(double interval_ms, uint64_t now, 
   const auto seconds_since = [&](uint64_t tick) {
     return tick ? double(now - tick) / double(frequency) : 0.0;
   };
-  // Recovery counts ~29 fps as on budget: a GPU-bound scene that settles just
-  // under 30 (one 50 ms frame every few seconds) otherwise never recovers
-  // and keeps shadows short indefinitely.
-  if (interval_ms > 36.0) {
+  const uint32_t target = adaptive_frame_budget::TargetFps(
+      rex::cvar::Query<uint32_t>("gta4_frame_limit"));
+  if (interval_ms > adaptive_frame_budget::GuardSlowAboveMs(target)) {
     if (!fps_guard_slow_since_tick_) fps_guard_slow_since_tick_ = now;
     fps_guard_fast_since_tick_ = 0;
-  } else if (interval_ms <= 34.5) {
+  } else if (interval_ms <= adaptive_frame_budget::GuardFastAtMs(target)) {
     if (!fps_guard_fast_since_tick_) fps_guard_fast_since_tick_ = now;
     fps_guard_slow_since_tick_ = 0;
   } else {

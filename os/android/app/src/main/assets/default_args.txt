@@ -1,5 +1,6 @@
 --log_level=warn
---gta4_native_upscaler=native
+--gta4_native_upscaler=fsr1
+--gta4_fsr1_quality=quality
 --gta4_native_anti_aliasing=fxaa
 --gta4_draw_distance_scale=1.0
 --gta4_dynamic_draw_distance=true
@@ -8,7 +9,7 @@
 --gta4_shadow_distance_scale=1.0
 --gta4_reflection_resolution=original
 --gta4_reflection_capture_distance=near
---gta4_frame_limit=30
+--gta4_frame_limit=60
 --gta4_traffic_density_scale=0.4
 --gta4_parked_car_density_scale=0.4
 --gta4_ped_density_scale=0.4
@@ -17,9 +18,10 @@
 --gta4_profile_native_detailed_gpu=false
 --gta4_motion_blur=false
 --gta4_native_max_queued_frames=3
-# Native 720p (the console's resolution); the presenter scales it to the panel.
---gta4_output_height_cap=720
-# 30 FPS with VSync: 30 divides the 60 Hz panel evenly.
+# Test profile: 1080p output, FSR1 Quality (720p input at 16:9).
+# Not a benchmarked guarantee of 60 fps; inspect actual extents and frametimes.
+--gta4_output_height_cap=1080
+# Synchronized 60 FPS target.
 --gta4_present_mode=vsync
 # The 30 FPS guard (environment reflection rate only now) is off by default.
 --gta4_fps_guard=0

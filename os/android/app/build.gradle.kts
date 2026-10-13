@@ -22,12 +22,13 @@ android {
     ndkVersion  = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.libertyrecomp"
+        // Side-by-side test install: never replace the original application's saves.
+        applicationId = "com.libertyrecomp.thor"
         // 28: ASharedMemory (26) for guest memory and AAudio (27) for audio.
         minSdk        = 29
         targetSdk     = 35
-        versionCode   = 16
-        versionName   = "0.5.9"
+        versionCode   = 10001
+        versionName   = "0.5.9-thor-test.1"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
