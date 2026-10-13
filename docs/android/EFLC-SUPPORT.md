@@ -1,6 +1,6 @@
 # Episodes from Liberty City: compatibility investigation
 
-Status: **executable received; CPU translation configured; hook/asset migration and Android build not completed**.
+Status: **private ARM64 EFLC start-test APK built and signed; gameplay, saving, rendering and frame times remain unverified on Thor**.
 Reviewed against Android v0.5.9 and Thor source commit 79a10df3083264cf6d9ee2bf8cf6a51f034149bc on 2026-10-13.
 
 ## Confirmed source constraints
@@ -12,7 +12,7 @@ The user supplied an inspection ZIP containing the complete 12,861,440-byte exec
 The image decodes successfully using the existing loader's AES/basic-compression algorithm.
 It has base `82000000`, entrypoint `82A10E90` and code range `82140000`–`82A85F5C`.
 The existing GTA IV generated code ends at `82A8635C`. Sharing a base address is insufficient.
-The game assets themselves have not been supplied, apart from the executable.
+The updated 126,284,317-byte asset evidence ZIP has also been supplied. It contains the four requested RPF archives, both episode script archives and update shaders; the full world/audio data remains on the user's ISO.
 
 | Layer | Active source | Compatibility constraint |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ The game assets themselves have not been supplied, apart from the executable.
 These are findings from the compatibility-related active build paths. This is not a claim that every generated instruction or every vendored dependency has been reviewed.
 
 Removing the first rejection or changing the accepted ID would not address the other constraints.
-No compatibility guards have been removed and no experimental game APK is labeled EFLC-compatible.
+The original GTA IV installation path remains separate. The new experimental EFLC installer accepts only the inspected executable SHA-256; packaging is not proof of gameplay compatibility.
 
 ## Executable translation and hook comparison
 
@@ -39,7 +39,7 @@ tables. `tools/eflc_codegen/eflc_config.toml` records the explicit code ranges a
 labels. `tools/stage_eflc_codegen.py` enforces the exact input SHA-256 and stages inputs outside
 this public repository. Its strict run does not use `--force` to ignore analysis errors.
 
-The generated CPU code is a research intermediate, not a working Android title library.
+The strict generated CPU code was compiled into a separate ARM64 `libmain.so` with 89 compilation units and a successful no-undefined-symbol link. The host uses the generic `xenos` renderer. GTA IV TU8 title hooks are not registered; this does not complete their EFLC migration or establish working gameplay.
 No user executable, decoded image, game-derived generated source or game assets are published
 to the repository by these tools.
 
@@ -80,14 +80,11 @@ Files are bounded at 64 MiB each and 128 MiB combined. SHA-256 is recorded for e
 Some Android file viewers show HTML as text instead of executing it: use a browser in that case.
 Browser operation on the user's Thor has not yet been tested.
 
-The updated asset ZIP is required to verify the archive layouts, episode selection, phone/save
-script profiles and shader differences before implementing the corresponding adapters.
-The first, executable-only helper worked on the user's Thor. The updated asset mode is
-synthetically tested and has not yet been run on that device.
+Both helper modes have now produced evidence on the user's Thor. The four RPF tables and both script IMG tables were decoded. TBoGT spcellphonemain code matches the existing profile digest, while TLAD differs. No unverified TLAD phone offsets or quicksave hooks were applied.
 
 ## Next implementation gates
 
-1. Receive the asset ZIP; inspect and decode the two episode script archives and four RPF archives.
+1. Completed: receive the asset ZIP, decode the two script archives and four RPF tables, generate and compile the exact EFLC executable, and package a signed start-test APK.
 2. Validate each necessary function/global mapping, calling convention and renderer structure.
    Resolve the ambiguous/missing candidates. Validate phone/SCO script profiles against disc data.
 3. Implement a separate executable-specific route with revision-specific validation; update installer,
@@ -105,3 +102,15 @@ Tests use synthetic discs with multiple executables,
 all partition offsets, a virtual 8 GiB image, malformed trees and out-of-bounds data.
 The emitted test ZIPs are checked with Python's `zipfile` for CRCs, paths and payloads.
 The decoder tests cover continuous AES chaining across blocks, bounds checks and PE/XEX consistency.
+
+## Private start-test build
+
+`tools/build_eflc_native_local.py` compiles generated code stored outside the repository with NDK r29, retaining the pinned original runtime libraries. `tools/package_eflc_local.py` packages Java/SDL code with Android build-tools 35.0.0, JDK 17 and the checksum-verified v0.5.9 APK resources/libraries. The generated game source, executable, game assets, APK and signing key are not published to GitHub.
+
+The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.1`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
+
+Verified: 14 synthetic installer checks, all Java compilation, native linking, APK ZIP CRCs, matching staged libmain checksum, ARM64/launcher metadata and apksigner signature verification. No disc executable/RPF/IMG/SCO assets are bundled.
+
+APK SHA-256: `a4f6134895e9ab02348ebdea87327627d735080358c2ed8d36fc66467a90d2d5` (44,116,772 bytes).
+
+Thor acceptance is still required: launch both episodes, verify picture/audio/controller behavior, save normally, fully close/reopen the app and load the save. On failure, use **Exporteer debuglog**. Stable 60 FPS and sharp rendering remain unestablished.

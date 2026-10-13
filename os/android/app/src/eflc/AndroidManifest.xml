@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x00401000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="EFLC Start Test" android:icon="@mipmap/ic_launcher"
+        android:theme="@style/AppTheme.Fullscreen" android:allowBackup="false"
+        android:appCategory="game" android:isGame="true" android:largeHeap="true"
+        android:extractNativeLibs="true">
+        <activity android:name="com.libertyrecomp.EflcLauncherActivity" android:exported="true"
+            android:theme="@style/LauncherTheme" android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name="com.libertyrecomp.EflcGameActivity" android:exported="false"
+            android:process=":game" android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape" android:resizeableActivity="false"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|fontScale">
+            <meta-data android:name="SDL_ENV.SDL_ORIENTATIONS" android:value="LandscapeLeft LandscapeRight" />
+            <meta-data android:name="SDL_ENV.SDL_ENABLE_SCREEN_KEYBOARD" android:value="0" />
+            <meta-data android:name="SDL_ENV.SDL_JOYSTICK_HIDAPI" android:value="0" />
+        </activity>
+    </application>
+</manifest>

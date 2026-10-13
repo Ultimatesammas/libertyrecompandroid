@@ -15,6 +15,7 @@ plugins {
 
 val sdlJavaDir = rootProject.file(
     "../../glue/rexglue-sdk-main/thirdparty/sdl3/android-project/app/src/main/java")
+val eflcStartTest = providers.gradleProperty("eflcStartTest").orNull == "true"
 
 android {
     namespace   = "com.libertyrecomp"
@@ -23,12 +24,12 @@ android {
 
     defaultConfig {
         // Side-by-side test install: never replace the original application's saves.
-        applicationId = "com.libertyrecomp.thor"
+        applicationId = if (eflcStartTest) "com.libertyrecomp.eflctest" else "com.libertyrecomp.thor"
         // 28: ASharedMemory (26) for guest memory and AAudio (27) for audio.
         minSdk        = 29
         targetSdk     = 35
-        versionCode   = 10001
-        versionName   = "0.5.9-thor-test.1"
+        versionCode   = if (eflcStartTest) 20001 else 10001
+        versionName   = if (eflcStartTest) "0.5.9-eflc-start-test.1" else "0.5.9-thor-test.1"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -36,6 +37,10 @@ android {
     }
 
     sourceSets["main"].java.srcDirs("src/main/java", sdlJavaDir)
+    if (eflcStartTest) {
+        sourceSets["main"].java.srcDir("src/eflc/java")
+        sourceSets["main"].manifest.srcFile("src/eflc/AndroidManifest.xml")
+    }
 
     buildTypes {
         debug {
