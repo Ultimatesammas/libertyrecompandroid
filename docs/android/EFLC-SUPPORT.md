@@ -107,10 +107,14 @@ The decoder tests cover continuous AES chaining across blocks, bounds checks and
 
 `tools/build_eflc_native_local.py` compiles generated code stored outside the repository with NDK r29, retaining the pinned original runtime libraries. `tools/package_eflc_local.py` packages Java/SDL code with Android build-tools 35.0.0, JDK 17 and the checksum-verified v0.5.9 APK resources/libraries. The generated game source, executable, game assets, APK and signing key are not published to GitHub.
 
-The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.1`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
+The package is `com.libertyrecomp.eflctest`, version `0.5.9-eflc-start-test.2`. The installer copies the user's own disc using bounded reads, validates the exact executable, and commits staged game files only after validation. It requires additional free space for the extracted disc. Save data lives outside the replaceable game directory in the separate application's EFLC/saves folder. These paths and synthetic preservation tests do not prove game-level saving works.
 
 Verified: 14 synthetic installer checks, all Java compilation, native linking, APK ZIP CRCs, matching staged libmain checksum, ARM64/launcher metadata and apksigner signature verification. No disc executable/RPF/IMG/SCO assets are bundled.
 
-APK SHA-256: `a4f6134895e9ab02348ebdea87327627d735080358c2ed8d36fc66467a90d2d5` (44,116,772 bytes).
+APK SHA-256: `29f69d8f4f152fc3b158a32530dc0501933afbd184e9a52ae44f88009b8a4435` (44,129,060 bytes).
 
 Thor acceptance is still required: launch both episodes, verify picture/audio/controller behavior, save normally, fully close/reopen the app and load the save. On failure, use **Exporteer debuglog**. Stable 60 FPS and sharp rendering remain unestablished.
+
+### Installation packaging correction (test.2)
+
+The first manual package incorrectly compressed resources.arsc. Android 11+ rejects compressed or non-4-byte-aligned resource tables for target API 30+. Signature verification alone did not detect this. The corrected packager preserves aapt2 ZIP storage metadata, retains the signing key/package ID, increments versionCode to 20002, and checks final APK table compression, actual local-entry data offset, ZIP CRCs and zipalign. This is a packaging fix only; Thor gameplay acceptance is still pending.

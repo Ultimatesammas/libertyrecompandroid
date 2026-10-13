@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import shutil
+import struct
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
@@ -47,7 +48,7 @@ def main():
          "--java", rjava, "--custom-package", "com.libertyrecomp",
          "--rename-manifest-package", "com.libertyrecomp.eflctest",
          "--min-sdk-version", "29", "--target-sdk-version", "35",
-         "--version-code", "20001", "--version-name", "0.5.9-eflc-start-test.1",
+         "--version-code", "20002", "--version-name", "0.5.9-eflc-start-test.2",
          "-o", out / "resource-apk.apk", resources])
     classes = out / "classes"
     classes.mkdir(exist_ok=True)
@@ -69,8 +70,12 @@ def main():
     native = a.native.read_bytes()
     libraries = {}
     with zipfile.ZipFile(out / "resource-apk.apk") as resource_zip, zipfile.ZipFile(a.baseline) as base, zipfile.ZipFile(unsigned, "w", zipfile.ZIP_DEFLATED) as z:
-        for name in resource_zip.namelist():
-            z.writestr(name, resource_zip.read(name))
+        for entry in resource_zip.infolist():
+            # Android 11+ rejects compressed or unaligned resources.arsc.
+            # Preserve aapt2's storage method instead of re-compressing entries.
+            if entry.filename == "resources.arsc":
+                entry.compress_type = zipfile.ZIP_STORED
+            z.writestr(entry, resource_zip.read(entry.filename))
         for path in sorted(dex.glob("*.dex")):
             z.write(path, path.name)
         for name in base.namelist():
@@ -87,12 +92,23 @@ def main():
         run([a.jdk / "bin/keytool", "-genkeypair", "-keystore", key, "-storepass", "android",
              "-keypass", "android", "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048",
              "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"])
-    target = out / "LibertyRecomp-EFLC-start-test.apk"
+    target = out / "LibertyRecomp-EFLC-install-fix.apk"
     run([tools / "apksigner", "sign", "--ks", key, "--ks-key-alias", "androiddebugkey",
          "--ks-pass", "pass:android", "--key-pass", "pass:android", "--out", target, aligned])
     with (out / "signing-validation.txt").open("w") as log:
         subprocess.run([str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(target)],
                        check=True, env=env, stdout=log, stderr=subprocess.STDOUT)
+    run([tools / "zipalign", "-c", "4", target])
+    with zipfile.ZipFile(target) as z, target.open("rb") as stream:
+        if z.testzip() is not None:
+            raise ValueError("Corrupt APK ZIP entry")
+        resource = z.getinfo("resources.arsc")
+        stream.seek(resource.header_offset)
+        local_header = stream.read(30)
+        name_length, extra_length = struct.unpack_from("<HH", local_header, 26)
+        resource_offset = resource.header_offset + 30 + name_length + extra_length
+        if resource.compress_type != zipfile.ZIP_STORED or resource_offset % 4:
+            raise ValueError("Android installation requires stored, 4-byte-aligned resources.arsc")
     with (out / "badging.txt").open("w") as log:
         subprocess.run([str(tools / "aapt"), "dump", "badging", str(target)], check=True,
                        env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -102,6 +118,7 @@ def main():
     (out / "apk-validation.json").write_text(json.dumps({
         "apk":target.name, "sha256":hashlib.sha256(target.read_bytes()).hexdigest(),
         "native_libraries":libraries, "game_assets_included":False,
+        "resources_arsc_stored_and_aligned":True,
         "device_gameplay_save_load_fps_verified":False,
         "kind":"Private EFLC start test, not the completed Thor performance port"
     },indent=2))
