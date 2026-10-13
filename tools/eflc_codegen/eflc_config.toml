@@ -1,0 +1,22 @@
+# Only for EFLC executable SHA256
+# 590accf1a74b70ff3b4181090367fe702aa6a7a12059a04414d55c8ca514a140.
+# Use stage_eflc_codegen.py to enforce this input. Not a GTA IV TU8 overlay.
+# Five previously undiscovered tail-call targets verified in the supplied XEX.
+# Switch labels come from the BE pointer tables at 82731EAC / 827323F4;
+# r11 contains the zero-based index before slwi r0,r11,2.
+[functions]
+"0x8217D5B8" = { size = 0xA0 }
+"0x8219FFF0" = { size = 8 }
+"0x82731E70" = { size = 0xA0 }
+"0x827323B8" = { size = 0x94 }
+"0x82A77A28" = { size = 8 }
+
+[[switch_tables]]
+address = 0x82731EA8
+register = 11
+labels = [0x82731EE8, 0x82731EF0, 0x82731EF8, 0x82731ED0, 0x82731EC8, 0x82731EE0, 0x82731ED8]
+
+[[switch_tables]]
+address = 0x827323F0
+register = 11
+labels = [0x82732414, 0x82732424, 0x8273242C, 0x82732434, 0x8273241C, 0x8273240C]

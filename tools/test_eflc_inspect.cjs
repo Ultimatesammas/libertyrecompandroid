@@ -70,5 +70,19 @@ function fixture({base = 0, size = base + 200000, mutate = () => {}} = {}) {
     assert.equal(result.report.executables[0].metadata.error,'Ongeldige execution-info');
   });
   await run('CRC32 reference vector', async () => assert.equal(context.crc32(new TextEncoder().encode('123456789')),0xCBF43926));
+  await run('asset request reports missing archives', async () => assert.rejects(context.makeBundle(fixture(),()=>{},true), /ontbreken/));
+  await run('asset bundle includes required archives and update shaders', async () => {
+    const original=context.listIso;
+    context.listIso=async()=>({partitionOffset:0,rootSector:40,rootSize:128,entries:[
+      {path:'default.xex',offset:50*2048,size:128,directory:false},
+      ...['common.rpf','xbox360.rpf','DLC1/DLC.rpf','DLC2/DLC.rpf','DLC1/DLC/common/data/cdimages/script.img','DLC2/DLC/common/data/cdimages/script.img','update/shaders/fxl_final/rage_postfx_e2.fxc'].map(path=>({path,offset:50*2048,size:16,directory:false})),
+      {path:'xbox360/audio/sfx/huge.rpf',offset:0,size:150*1024**2,directory:false}
+    ]});
+    try {
+      const result=await context.makeBundle(fixture(),()=>{},true);
+      assert.equal(result.report.includesResearchAssets,true);
+      fs.writeFileSync('/tmp/eflc-synthetic-assets-test.zip',Buffer.from(await result.zip.arrayBuffer()));
+    } finally {context.listIso=original;}
+  });
   process.stdout.write(passed + ' checks passed\n');
 })().catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});
